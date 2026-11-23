@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flugrouten-Rechner</title>
+<style>
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --ink: #18202b; --muted: #5b6676; --line: #dde3ea;
+  --accent: #1f6feb; --accent-ink: #ffffff; --route: #e0452b; --rhumb: #8a93a3; --stop: #0d9f6e;
+  --ocean: #e7eff8; --land: #cfd8e3; --border: #ffffff; --grat: #d3dde8; --warn-bg: #fff4e0; --warn-ink: #8a5300;
+  --ok-bg: #e5f6ee; --ok-ink: #0b6b49;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --panel: #171e27; --ink: #e6ebf1; --muted: #98a3b3; --line: #2a3441;
+    --accent: #4c8dff; --accent-ink: #0b1220; --route: #ff6b4f; --rhumb: #7d8798; --stop: #34d399;
+    --ocean: #121b26; --land: #2b3746; --border: #172130; --grat: #1d2835; --warn-bg: #3a2a10; --warn-ink: #ffc56b;
+    --ok-bg: #0f2e22; --ok-ink: #6ee7b7;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --panel: #171e27; --ink: #e6ebf1; --muted: #98a3b3; --line: #2a3441;
+  --accent: #4c8dff; --accent-ink: #0b1220; --route: #ff6b4f; --rhumb: #7d8798; --stop: #34d399;
+  --ocean: #121b26; --land: #2b3746; --border: #172130; --grat: #1d2835; --warn-bg: #3a2a10; --warn-ink: #ffc56b;
+  --ok-bg: #0f2e22; --ok-ink: #6ee7b7;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { padding: 20px 16px 8px; max-width: 1280px; margin: 0 auto; }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+main { max-width: 1280px; margin: 0 auto; padding: 12px 16px 40px; display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+input, select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.swap { display: flex; justify-content: flex-end; margin-top: 6px; }
+button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 8px 12px; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; width: 100%; margin-top: 14px; padding: 10px; }
+button.small { padding: 4px 10px; font-size: 13px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.err { color: var(--route); font-size: 13px; margin-top: 8px; min-height: 1em; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; align-content: start; }
+.mapwrap { position: relative; padding: 0; overflow: hidden; }
+.maptools { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; z-index: 2; }
+.maptools button { background: var(--panel); font-size: 13px; padding: 5px 10px; }
+.maptools button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+svg#map { display: block; width: 100%; height: auto; touch-action: none; cursor: grab; }
+svg#map:active { cursor: grabbing; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); padding: 8px 14px 12px; }
+.legend i { display: inline-block; width: 18px; height: 0; border-top: 3px solid var(--route); vertical-align: middle; margin-right: 6px; }
+.legend i.rh { border-top: 2px dashed var(--rhumb); }
+.legend i.st { border-top-color: var(--stop); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.kpi { background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+.kpi .k { font-size: 12px; color: var(--muted); }
+.kpi .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.kpi .s { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.note { border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-top: 12px; }
+.note.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.note.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+td.num, th.num { text-align: right; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.toolbar h2 { margin: 0; }
+.toolbar .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+footer { max-width: 1280px; margin: 0 auto; padding: 0 16px 30px; color: var(--muted); font-size: 12px; }
+.ap { fill: var(--ink); stroke: var(--panel); stroke-width: 1.5; }
+.aplabel { font-size: 13px; font-weight: 650; fill: var(--ink); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Flugrouten-Rechner</h1>
+  <p>Berechnet die ideale Route als Großkreis (Orthodrome) – die kürzeste Verbindung über die Erdoberfläche. Luftraumsperrungen und politische Einschränkungen werden bewusst <strong>nicht</strong> berücksichtigt.</p>
+</header>
+
+<main>
+  <div class="stack">
+    <form class="card" id="form" autocomplete="off">
+      <h2>Route</h2>
+      <label for="from">Start</label>
+      <input id="from" list="aplist" value="FRA" placeholder="IATA/ICAO, Stadt oder Lat, Lon">
+      <div class="swap"><button type="button" class="small" id="swapBtn" title="Start und Ziel tauschen">⇅ tauschen</button></div>
+      <label for="to" style="margin-top:0">Ziel</label>
+      <input id="to" list="aplist" value="SFO" placeholder="IATA/ICAO, Stadt oder Lat, Lon">
+      <div class="hint">z. B. „MUC“, „Tokio“, „EDDF“ oder „52.52, 13.40“</div>
+      <datalist id="aplist"></datalist>
+
+      <h2 style="margin-top:20px">Flugzeug</h2>
+      <label for="ac">Typ</label>
+      <select id="ac"></select>
+      <div class="row">
+        <div><label for="tas">Reisegeschw. (kt TAS)</label><input id="tas" type="number" min="50" max="2000" step="1"></div>
+        <div><label for="range">Reichweite (km)</label><input id="range" type="number" min="100" max="25000" step="10"></div>
+      </div>
+      <div class="row">
+        <div><label for="burn">Verbrauch (kg/h)</label><input id="burn" type="number" min="0" step="10"></div>
+        <div><label for="wind">Wind (kt, + Rücken)</label><input id="wind" type="number" step="1" value="0"></div>
+      </div>
+
+      <h2 style="margin-top:20px">Optionen</h2>
+      <div class="row">
+        <div><label for="reserve">Reserve (%)</label><input id="reserve" type="number" min="0" max="50" step="1" value="10"></div>
+        <div><label for="extra">Rollen/Steigen (min)</label><input id="extra" type="number" min="0" max="180" step="5" value="30"></div>
+      </div>
+      <label for="spacing">Wegpunkt-Abstand (km)</label>
+      <input id="spacing" type="number" min="50" max="5000" step="50" value="500">
+
+      <button class="primary" type="submit">Route berechnen</button>
+      <div class="err" id="err" role="alert"></div>
+    </form>
+  </div>
+
+  <div class="stack">
+    <div class="card mapwrap">
+      <div class="maptools">
+        <button type="button" id="viewGlobe" class="on">Globus</button>
+        <button type="button" id="viewFlat">Karte</button>
+      </div>
+      <svg id="map" viewBox="0 0 900 560" aria-label="Karte der Flugroute"></svg>
+      <div class="legend">
+        <span><i></i>Großkreis (ideal)</span>
+        <span><i class="rh"></i>Loxodrome (konstanter Kurs, zum Vergleich)</span>
+        <span id="legStop" hidden><i class="st"></i>Route mit Tankstopp</span>
+        <span>Karte mit Maus/Finger drehen</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Ergebnis</h2>
+      <div class="kpis" id="kpis"></div>
+      <div id="notes"></div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <h2>Wegpunkte</h2>
+        <div class="btns">
+          <button type="button" class="small" id="csvBtn">CSV</button>
+          <button type="button" class="small" id="gpxBtn">GPX</button>
+          <button type="button" class="small" id="copyBtn">Kopieren</button>
+        </div>
+      </div>
+      <div class="tablewrap"><table id="wpt"></table></div>
+    </div>
+  </div>
+</main>
+<footer>
+  Berechnung auf der Kugel mit mittlerem Erdradius (6371,0 km). Flugzeit = Distanz ÷ (TAS + Windkomponente) + Zuschlag für Rollen/Steig-/Sinkflug.
+  Werte sind Näherungen für Planung und Vergleich, keine Navigationsgrundlage.
+</footer>
+
+<script id="world" type="application/json">__WORLD__</script>
+<script>__D3__</script>
+<script>__TOPOJSON__</script>
+<script>
+"use strict";
+// ---------- Daten ----------
+// [IATA, ICAO, Name, Land, Lat, Lon]
+const AIRPORTS = [
+["FRA","EDDF","Frankfurt","DE",50.0333,8.5706],["MUC","EDDM","München","DE",48.3538,11.7861],
+["BER","EDDB","Berlin Brandenburg","DE",52.3667,13.5033],["HAM","EDDH","Hamburg","DE",53.6304,9.9882],
+["DUS","EDDL","Düsseldorf","DE",51.2895,6.7668],["CGN","EDDK","Köln/Bonn","DE",50.8659,7.1427],
+["STR","EDDS","Stuttgart","DE",48.6899,9.2220],["HAJ","EDDV","Hannover","DE",52.4611,9.6851],
+["NUE","EDDN","Nürnberg","DE",49.4987,11.0669],["LEJ","EDDP","Leipzig/Halle","DE",51.4239,12.2364],
+["VIE","LOWW","Wien","AT",48.1103,16.5697],["ZRH","LSZH","Zürich","CH",47.4647,8.5492],
+["GVA","LSGG","Genf","CH",46.2381,6.1090],["LHR","EGLL","London Heathrow","GB",51.4700,-0.4543],
+["LGW","EGKK","London Gatwick","GB",51.1537,-0.1821],["MAN","EGCC","Manchester","GB",53.3537,-2.2750],
+["EDI","EGPH","Edinburgh","GB",55.9500,-3.3725],["DUB","EIDW","Dublin","IE",53.4213,-6.2701],
+["SNN","EINN","Shannon","IE",52.7020,-8.9248],["CDG","LFPG","Paris Charles de Gaulle","FR",49.0097,2.5479],
+["ORY","LFPO","Paris Orly","FR",48.7262,2.3652],["NCE","LFMN","Nizza","FR",43.6584,7.2159],
+["AMS","EHAM","Amsterdam","NL",52.3105,4.7683],["BRU","EBBR","Brüssel","BE",50.9014,4.4844],
+["LUX","ELLX","Luxemburg","LU",49.6233,6.2044],["CPH","EKCH","Kopenhagen","DK",55.6180,12.6508],
+["ARN","ESSA","Stockholm Arlanda","SE",59.6498,17.9238],["OSL","ENGM","Oslo","NO",60.1976,11.1004],
+["HEL","EFHK","Helsinki","FI",60.3172,24.9633],["KEF","BIKF","Keflavík","IS",63.9850,-22.6056],
+["LYR","ENSB","Longyearbyen","NO",78.2461,15.4656],["MAD","LEMD","Madrid","ES",40.4983,-3.5676],
+["BCN","LEBL","Barcelona","ES",41.2974,2.0833],["PMI","LEPA","Palma de Mallorca","ES",39.5517,2.7388],
+["AGP","LEMG","Málaga","ES",36.6749,-4.4991],["LIS","LPPT","Lissabon","PT",38.7756,-9.1354],
+["PDL","LPPD","Ponta Delgada (Azoren)","PT",37.7412,-25.6979],["LPA","GCLP","Gran Canaria","ES",27.9319,-15.3866],
+["FCO","LIRF","Rom Fiumicino","IT",41.8003,12.2389],["MXP","LIMC","Mailand Malpensa","IT",45.6306,8.7281],
+["VCE","LIPZ","Venedig","IT",45.5053,12.3519],["ATH","LGAV","Athen","GR",37.9364,23.9445],
+["IST","LTFM","Istanbul","TR",41.2753,28.7519],["WAW","EPWA","Warschau","PL",52.1657,20.9671],
+["PRG","LKPR","Prag","CZ",50.1008,14.2600],["BUD","LHBP","Budapest","HU",47.4298,19.2611],
+["OTP","LROP","Bukarest","RO",44.5711,26.0850],["SOF","LBSF","Sofia","BG",42.6967,23.4114],
+["KBP","UKBB","Kiew Boryspil","UA",50.3450,30.8947],["SVO","UUEE","Moskau Scheremetjewo","RU",55.9726,37.4146],
+["LED","ULLI","Sankt Petersburg","RU",59.8003,30.2625],["OVB","UNNT","Nowosibirsk","RU",55.0126,82.6507],
+["VVO","UHWW","Wladiwostok","RU",43.3990,132.1480],["PKC","UHPP","Petropawlowsk-Kamtschatski","RU",53.1679,158.4537],
+["DXB","OMDB","Dubai","AE",25.2532,55.3657],["AUH","OMAA","Abu Dhabi","AE",24.4330,54.6511],
+["DOH","OTHH","Doha","QA",25.2731,51.6081],["TLV","LLBG","Tel Aviv","IL",32.0114,34.8867],
+["AMM","OJAI","Amman","JO",31.7226,35.9932],["RUH","OERK","Riad","SA",24.9576,46.6988],
+["JED","OEJN","Dschidda","SA",21.6796,39.1565],["IKA","OIIE","Teheran","IR",35.4161,51.1522],
+["CAI","HECA","Kairo","EG",30.1219,31.4056],["CMN","GMMN","Casablanca","MA",33.3675,-7.5898],
+["ALG","DAAG","Algier","DZ",36.6910,3.2154],["TUN","DTTA","Tunis","TN",36.8510,10.2272],
+["DSS","GOBD","Dakar","SN",14.6700,-17.0733],["SID","GVAC","Sal (Kap Verde)","CV",16.7414,-22.9494],
+["LOS","DNMM","Lagos","NG",6.5774,3.3212],["ACC","DGAA","Accra","GH",5.6052,-0.1668],
+["ADD","HAAB","Addis Abeba","ET",8.9779,38.7993],["NBO","HKJK","Nairobi","KE",-1.3192,36.9278],
+["DAR","HTDA","Daressalam","TZ",-6.8781,39.2026],["JNB","FAOR","Johannesburg","ZA",-26.1392,28.2460],
+["CPT","FACT","Kapstadt","ZA",-33.9715,18.6021],["MRU","FIMP","Mauritius","MU",-20.4302,57.6836],
+["DEL","VIDP","Delhi","IN",28.5562,77.1000],["BOM","VABB","Mumbai","IN",19.0896,72.8656],
+["BLR","VOBL","Bengaluru","IN",13.1986,77.7066],["MAA","VOMM","Chennai","IN",12.9941,80.1709],
+["CCU","VECC","Kolkata","IN",22.6547,88.4467],["CMB","VCBI","Colombo","LK",7.1808,79.8841],
+["MLE","VRMM","Malé","MV",4.1918,73.5291],["KTM","VNKT","Kathmandu","NP",27.6966,85.3591],
+["DAC","VGHS","Dhaka","BD",23.8433,90.3978],["KHI","OPKC","Karachi","PK",24.9065,67.1608],
+["ISB","OPIS","Islamabad","PK",33.5491,72.8256],["TAS","UTTT","Taschkent","UZ",41.2579,69.2812],
+["ALA","UAAA","Almaty","KZ",43.3521,77.0405],["NQZ","UACC","Astana","KZ",51.0222,71.4669],
+["BKK","VTBS","Bangkok","TH",13.6900,100.7501],["SIN","WSSS","Singapur","SG",1.3644,103.9915],
+["KUL","WMKK","Kuala Lumpur","MY",2.7456,101.7099],["CGK","WIII","Jakarta","ID",-6.1256,106.6559],
+["DPS","WADD","Denpasar (Bali)","ID",-8.7482,115.1672],["MNL","RPLL","Manila","PH",14.5086,121.0194],
+["SGN","VVTS","Ho-Chi-Minh-Stadt","VN",10.8188,106.6520],["HAN","VVNB","Hanoi","VN",21.2212,105.8072],
+["HKG","VHHH","Hongkong","HK",22.3080,113.9185],["TPE","RCTP","Taipeh","TW",25.0797,121.2342],
+["PEK","ZBAA","Peking Capital","CN",40.0799,116.6031],["PKX","ZBAD","Peking Daxing","CN",39.5098,116.4105],
+["PVG","ZSPD","Shanghai Pudong","CN",31.1443,121.8083],["CAN","ZGGG","Guangzhou","CN",23.3924,113.2988],
+["CTU","ZUUU","Chengdu","CN",30.5785,103.9471],["URC","ZWWW","Ürümqi","CN",43.9071,87.4742],
+["ULN","ZMCK","Ulaanbaatar","MN",47.6467,106.8197],["ICN","RKSI","Seoul Incheon","KR",37.4602,126.4407],
+["NRT","RJAA","Tokio Narita","JP",35.7720,140.3929],["HND","RJTT","Tokio Haneda","JP",35.5494,139.7798],
+["KIX","RJBB","Osaka Kansai","JP",34.4320,135.2304],["CTS","RJCC","Sapporo","JP",42.7752,141.6923],
+["GUM","PGUM","Guam","GU",13.4834,144.7960],["SYD","YSSY","Sydney","AU",-33.9399,151.1753],
+["MEL","YMML","Melbourne","AU",-37.6690,144.8410],["BNE","YBBN","Brisbane","AU",-27.3842,153.1175],
+["PER","YPPH","Perth","AU",-31.9385,115.9672],["ADL","YPAD","Adelaide","AU",-34.9450,138.5306],
+["DRW","YPDN","Darwin","AU",-12.4147,130.8768],["AKL","NZAA","Auckland","NZ",-37.0082,174.7850],
+["CHC","NZCH","Christchurch","NZ",-43.4894,172.5322],["NAN","NFFN","Nadi","FJ",-17.7554,177.4431],
+["PPT","NTAA","Papeete (Tahiti)","PF",-17.5537,-149.6066],["HNL","PHNL","Honolulu","US",21.3187,-157.9225],
+["ANC","PANC","Anchorage","US",61.1743,-149.9963],["FAI","PAFA","Fairbanks","US",64.8151,-147.8561],
+["SEA","KSEA","Seattle","US",47.4502,-122.3088],["SFO","KSFO","San Francisco","US",37.6213,-122.3790],
+["LAX","KLAX","Los Angeles","US",33.9416,-118.4085],["LAS","KLAS","Las Vegas","US",36.0840,-115.1537],
+["PHX","KPHX","Phoenix","US",33.4342,-112.0116],["DEN","KDEN","Denver","US",39.8561,-104.6737],
+["DFW","KDFW","Dallas/Fort Worth","US",32.8998,-97.0403],["IAH","KIAH","Houston","US",29.9902,-95.3368],
+["ORD","KORD","Chicago O'Hare","US",41.9742,-87.9073],["ATL","KATL","Atlanta","US",33.6407,-84.4277],
+["MIA","KMIA","Miami","US",25.7959,-80.2870],["MCO","KMCO","Orlando","US",28.4312,-81.3081],
+["JFK","KJFK","New York JFK","US",40.6413,-73.7781],["EWR","KEWR","Newark","US",40.6895,-74.1745],
+["BOS","KBOS","Boston","US",42.3656,-71.0096],["IAD","KIAD","Washington Dulles","US",38.9531,-77.4565],
+["YYZ","CYYZ","Toronto","CA",43.6777,-79.6248],["YUL","CYUL","Montreal","CA",45.4706,-73.7408],
+["YVR","CYVR","Vancouver","CA",49.1967,-123.1815],["YYC","CYYC","Calgary","CA",51.1215,-114.0076],
+["YQX","CYQX","Gander","CA",48.9369,-54.5681],["YFB","CYFB","Iqaluit","CA",63.7564,-68.5558],
+["SFJ","BGSF","Kangerlussuaq","GL",67.0122,-50.7116],["MEX","MMMX","Mexiko-Stadt","MX",19.4363,-99.0721],
+["CUN","MMUN","Cancún","MX",21.0365,-86.8771],["HAV","MUHA","Havanna","CU",22.9892,-82.4091],
+["SJU","TJSJ","San Juan","PR",18.4394,-66.0018],["PTY","MPTO","Panama-Stadt","PA",9.0714,-79.3835],
+["BOG","SKBO","Bogotá","CO",4.7016,-74.1469],["CCS","SVMI","Caracas","VE",10.6031,-66.9906],
+["UIO","SEQM","Quito","EC",-0.1292,-78.3575],["LIM","SPJC","Lima","PE",-12.0219,-77.1143],
+["GRU","SBGR","São Paulo","BR",-23.4356,-46.4731],["GIG","SBGL","Rio de Janeiro","BR",-22.8090,-43.2506],
+["REC","SBRF","Recife","BR",-8.1265,-34.9236],["EZE","SAEZ","Buenos Aires","AR",-34.8222,-58.5358],
+["SCL","SCEL","Santiago de Chile","CL",-33.3930,-70.7858],["PUQ","SCCI","Punta Arenas","CL",-53.0026,-70.8546]
+].map(a => ({ iata: a[0], icao: a[1], name: a[2], cc: a[3], lat: a[4], lon: a[5] }));
+
+// Name, TAS kt, Reichweite km, Verbrauch kg/h (typische Richtwerte)
+const AIRCRAFT = [
+  ["Airbus A320neo", 450, 6300, 2400], ["Boeing 737 MAX 8", 453, 6570, 2300],
+  ["Airbus A321XLR", 450, 8700, 2700], ["Boeing 787-9", 488, 14010, 5600],
+  ["Airbus A350-900", 488, 15000, 5800], ["Airbus A350-900ULR", 488, 18000, 6300],
+  ["Boeing 777-300ER", 490, 13650, 7500], ["Airbus A380-800", 488, 14800, 11000],
+  ["Gulfstream G650ER", 488, 13890, 1700], ["Cessna Citation CJ4", 451, 3700, 700],
+  ["ATR 72-600", 275, 1400, 650], ["Eigene Werte", 450, 8000, 3000]
+];
+const CUSTOM_AC = AIRCRAFT.length - 1, DEFAULT_AC = 3;
+
+// ---------- Geodäsie (Kugelmodell) ----------
+const R = 6371.0088, NM = 1.852, rad = Math.PI / 180, deg = 180 / Math.PI;
+const norm360 = x => ((x % 360) + 360) % 360;
+const norm180 = x => ((x + 540) % 360) - 180;
+
+function centralAngle(a, b) {
+  const p1 = a.lat * rad, p2 = b.lat * rad, dp = p2 - p1, dl = (b.lon - a.lon) * rad;
+  const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+const gcDist = (a, b) => centralAngle(a, b) * R;
+function bearing(a, b) {
+  const p1 = a.lat * rad, p2 = b.lat * rad, dl = (b.lon - a.lon) * rad;
+  return norm360(Math.atan2(Math.sin(dl) * Math.cos(p2), Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl)) * deg);
+}
+const finalCourse = (a, b) => norm360(bearing(b, a) + 180);
+function interpolate(a, b, f, d = centralAngle(a, b)) {
+  if (d < 1e-12) return { lat: a.lat, lon: a.lon };
+  const A = Math.sin((1 - f) * d) / Math.sin(d), B = Math.sin(f * d) / Math.sin(d);
+  const p1 = a.lat * rad, l1 = a.lon * rad, p2 = b.lat * rad, l2 = b.lon * rad;
+  const x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
+  const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
+  const z = A * Math.sin(p1) + B * Math.sin(p2);
+  return { lat: Math.atan2(z, Math.hypot(x, y)) * deg, lon: norm180(Math.atan2(y, x) * deg) };
+}
+const psi = lat => Math.log(Math.tan(Math.PI / 4 + lat * rad / 2));
+function rhumb(a, b) {
+  const dp = (b.lat - a.lat) * rad, dl = norm180(b.lon - a.lon) * rad, dpsi = psi(b.lat) - psi(a.lat);
+  const q = Math.abs(dpsi) > 1e-12 ? dp / dpsi : Math.cos(a.lat * rad);
+  return { dist: Math.sqrt(dp * dp + q * q * dl * dl) * R, brg: norm360(Math.atan2(dl, dpsi) * deg) };
+}
+function rhumbPoints(a, b, n = 240) {
+  const out = [], dl = norm180(b.lon - a.lon), s1 = psi(a.lat), s2 = psi(b.lat);
+  for (let i = 0; i <= n; i++) {
+    const f = i / n, lat = a.lat + (b.lat - a.lat) * f;
+    const g = Math.abs(s2 - s1) > 1e-12 ? (psi(lat) - s1) / (s2 - s1) : f; // Länge linear in Mercator-Breite
+    out.push([norm180(a.lon + dl * g), lat]);
+  }
+  return out;
+}
+
+// ---------- Formatierung ----------
+const fmt = (x, d = 0) => x.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+function dm(v, pos, neg, w) {
+  const h = v >= 0 ? pos : neg, a = Math.abs(v); let d = Math.floor(a), m = Math.round((a - d) * 600) / 10;
+  if (m >= 60) { d += 1; m = 0; }
+  return `${h}${String(d).padStart(w, "0")}°${m.toFixed(1).padStart(4, "0")}'`;
+}
+const latStr = v => dm(v, "N", "S", 2), lonStr = v => dm(v, "E", "W", 3);
+const posStr = p => `${latStr(p.lat)} ${lonStr(p.lon)}`;
+function hm(h) { const t = Math.round(h * 60); return `${Math.floor(t / 60)} h ${String(t % 60).padStart(2, "0")} min`; }
+const brgStr = b => `${String(Math.round(b) % 360).padStart(3, "0")}°`;
+const tag = p => p.iata || "Punkt";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---------- Eingabe ----------
+function findPlace(raw) {
+  const s = raw.trim(); if (!s) return null;
+  const m = s.match(/^(-?\d+(?:[.,]\d+)?)\s*[,;\s]\s*(-?\d+(?:[.,]\d+)?)$/);
+  if (m) {
+    const lat = parseFloat(m[1].replace(",", ".")), lon = parseFloat(m[2].replace(",", "."));
+    return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon, name: posStr({ lat, lon }) } : null;
+  }
+  const code = s.split(/\s/)[0].toUpperCase();
+  const q = s.replace(/^[A-Z]{3,4}\s+–\s+/i, "").toLowerCase();
+  return AIRPORTS.find(a => a.iata === code || a.icao === code)
+      || AIRPORTS.find(a => a.name.toLowerCase() === q)
+      || AIRPORTS.find(a => a.name.toLowerCase().includes(q)) || null;
+}
+
+// ---------- Tankstopp-Suche (Dijkstra: erst wenigste Stopps, dann kürzeste Gesamtstrecke) ----------
+function planStops(A, B, maxLeg) {
+  const nodes = [A, ...AIRPORTS.filter(a => a !== A && a !== B), B];
+  const n = nodes.length, cost = new Array(n).fill(Infinity), prev = new Array(n).fill(-1), done = new Array(n).fill(false);
+  cost[0] = 0;
+  for (;;) {
+    let u = -1;
+    for (let i = 0; i < n; i++) if (!done[i] && cost[i] < Infinity && (u < 0 || cost[i] < cost[u])) u = i;
+    if (u < 0 || u === n - 1) break;
+    done[u] = true;
+    for (let v = 0; v < n; v++) {
+      if (done[v]) continue;
+      const d = gcDist(nodes[u], nodes[v]);
+      if (d > maxLeg) continue;
+      const c = cost[u] + d + (v === n - 1 ? 0 : 1e6); // 1e6 = Strafe pro Zwischenlandung
+      if (c < cost[v]) { cost[v] = c; prev[v] = u; }
+    }
+  }
+  if (cost[n - 1] === Infinity) return null;
+  const path = []; for (let i = n - 1; i >= 0; i = prev[i]) path.unshift(nodes[i]);
+  return path;
+}
+
+// ---------- Karte ----------
+const world = JSON.parse(document.getElementById("world").textContent);
+const countries = topojson.feature(world, world.objects.countries);
+const borders = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
+const svg = d3.select("#map"), W = 900, H = 560;
+let mode = "globe", projection, path, state = null;
+
+function makeProjection() {
+  projection = mode === "globe"
+    ? d3.geoOrthographic().scale(265).translate([W / 2, H / 2]).clipAngle(90).precision(0.3)
+    : d3.geoNaturalEarth1().fitExtent([[10, 10], [W - 10, H - 10]], { type: "Sphere" }).precision(0.3);
+  path = d3.geoPath(projection);
+}
+function centerOn(rt) {
+  const mid = interpolate(rt.A, rt.B, 0.5);
+  if (mode === "globe") projection.rotate([-mid.lon, -mid.lat * 0.85]);
+  else projection.rotate([-mid.lon, 0]);
+}
+function visible(p) {
+  if (mode !== "globe") return true;
+  const r = projection.rotate();
+  return d3.geoDistance([p.lon, p.lat], [-r[0], -r[1]]) < Math.PI / 2 - 0.01;
+}
+const px = d => projection([d.lon, d.lat]);
+function draw() {
+  svg.selectAll("*").remove();
+  svg.append("path").datum({ type: "Sphere" }).attr("d", path).attr("fill", "var(--ocean)").attr("stroke", "var(--line)");
+  svg.append("path").datum(d3.geoGraticule10()).attr("d", path).attr("fill", "none").attr("stroke", "var(--grat)").attr("stroke-width", 0.6);
+  svg.append("path").datum(countries).attr("d", path).attr("fill", "var(--land)");
+  svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--border)").attr("stroke-width", 0.6);
+  if (!state) return;
+  const { A, B, stops } = state;
+  const line = (coords, color, w, dash) => svg.append("path").datum({ type: "LineString", coordinates: coords }).attr("d", path)
+    .attr("fill", "none").attr("stroke", color).attr("stroke-width", w).attr("stroke-linecap", "round").attr("stroke-dasharray", dash || null);
+  line(rhumbPoints(A, B), "var(--rhumb)", 1.6, "5 4");
+  if (stops && stops.length > 2) line(stops.map(p => [p.lon, p.lat]), "var(--stop)", 2.4);
+  line([[A.lon, A.lat], [B.lon, B.lat]], "var(--route)", 3); // d3 zeichnet LineStrings als Großkreisbögen
+  svg.append("g").selectAll("circle").data(state.waypoints.slice(1, -1).filter(visible)).join("circle")
+    .attr("r", 2.6).attr("fill", "var(--route)").attr("cx", d => px(d)[0]).attr("cy", d => px(d)[1]);
+  const pts = [A, B, ...(stops ? stops.slice(1, -1) : [])].filter(visible);
+  const g = svg.append("g");
+  g.selectAll("circle").data(pts).join("circle").attr("class", "ap").attr("r", 5).attr("cx", d => px(d)[0]).attr("cy", d => px(d)[1]);
+  g.selectAll("text").data(pts).join("text").attr("class", "aplabel").attr("x", d => px(d)[0] + 8).attr("y", d => px(d)[1] - 7).text(tag);
+}
+svg.call(d3.drag().on("drag", ev => {
+  const r = projection.rotate(), k = 0.3;
+  projection.rotate(mode === "globe" ? [r[0] + ev.dx * k, Math.max(-90, Math.min(90, r[1] - ev.dy * k))] : [r[0] + ev.dx * k, 0]);
+  draw();
+}));
+function setMode(m) {
+  mode = m;
+  document.getElementById("viewGlobe").classList.toggle("on", m === "globe");
+  document.getElementById("viewFlat").classList.toggle("on", m === "flat");
+  makeProjection(); if (state) centerOn(state); draw();
+}
+document.getElementById("viewGlobe").onclick = () => setMode("globe");
+document.getElementById("viewFlat").onclick = () => setMode("flat");
+
+// ---------- Berechnung ----------
+const $ = id => document.getElementById(id);
+function compute() {
+  $("err").textContent = "";
+  const A = findPlace($("from").value), B = findPlace($("to").value);
+  if (!A) { $("err").textContent = "Start nicht gefunden – Flughafencode, Stadt oder „Lat, Lon“ eingeben."; return; }
+  if (!B) { $("err").textContent = "Ziel nicht gefunden – Flughafencode, Stadt oder „Lat, Lon“ eingeben."; return; }
+  const d = gcDist(A, B);
+  if (d < 1) { $("err").textContent = "Start und Ziel sind identisch."; return; }
+  if (Math.abs(d - Math.PI * R) < 1) { $("err").textContent = "Start und Ziel liegen genau gegenüber – jeder Großkreis ist gleich lang, die Route ist nicht eindeutig."; return; }
+  const tas = +$("tas").value || 450, wind = +$("wind").value || 0, range = +$("range").value || 0;
+  const burn = +$("burn").value || 0, reserve = Math.min(0.9, Math.max(0, +$("reserve").value || 0) / 100), extra = Math.max(0, +$("extra").value || 0) / 60;
+  const spacing = Math.max(50, +$("spacing").value || 500), gs = tas + wind;
+  if (gs <= 0) { $("err").textContent = "Gegenwind ist größer als die Reisegeschwindigkeit."; return; }
+
+  const delta = centralAngle(A, B), n = Math.max(1, Math.ceil(d / spacing));
+  const waypoints = [];
+  for (let i = 0; i <= n; i++) {
+    const f = i / n, p = interpolate(A, B, f, delta);
+    p.dist = d * f;
+    p.course = i < n ? bearing(p, B) : finalCourse(A, B); // Kurs am Wegpunkt = Anfangskurs des Rest-Großkreises
+    p.label = i === 0 ? (A.iata || "START") : i === n ? (B.iata || "ZIEL") : `WP${String(i).padStart(2, "0")}`;
+    p.time = i === 0 ? 0 : p.dist / NM / gs + extra / 2 + (i === n ? extra / 2 : 0);
+    waypoints.push(p);
+  }
+  let vertex = A;
+  for (let i = 0; i <= 2000; i++) { const p = interpolate(A, B, i / 2000, delta); if (Math.abs(p.lat) > Math.abs(vertex.lat)) vertex = p; }
+  const rh = rhumb(A, B), mid = interpolate(A, B, 0.5, delta);
+  const hours = d / NM / gs + extra, fuel = burn * hours, usable = range * (1 - reserve);
+  const stops = range && d > usable ? planStops(A, B, usable) : null;
+
+  state = { A, B, d, waypoints, stops };
+  centerOn(state); draw();
+  $("legStop").hidden = !(stops && stops.length > 2);
+
+  const k = (label, v, s = "") => `<div class="kpi"><div class="k">${label}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  $("kpis").innerHTML =
+    k("Distanz (Großkreis)", `${fmt(d)} km`, `${fmt(d / NM)} NM · ${fmt(d / 1.609344)} mi`) +
+    k("Flugzeit (geschätzt)", hm(hours), `GS ${fmt(gs)} kt + ${fmt(extra * 60)} min Zuschlag`) +
+    k("Anfangskurs", brgStr(bearing(A, B)), `Endkurs ${brgStr(finalCourse(A, B))} (rechtweisend)`) +
+    k("Ersparnis vs. Loxodrome", `${fmt(rh.dist - d)} km`, `Loxodrome ${fmt(rh.dist)} km, Kurs ${brgStr(rh.brg)}`) +
+    k(vertex.lat >= 0 ? "Nördlichster Punkt" : "Südlichster Punkt", latStr(vertex.lat), lonStr(vertex.lon)) +
+    k("Streckenmitte", latStr(mid.lat), lonStr(mid.lon)) +
+    (burn ? k("Treibstoff (geschätzt)", `${fmt(fuel / 1000, 1)} t`, `${fmt(burn)} kg/h, ohne Reserve`) : "");
+
+  let notes = "";
+  if (range) {
+    if (d <= usable) notes += `<div class="note ok">Nonstop möglich: ${fmt(d)} km von nutzbaren ${fmt(usable)} km (${fmt(range)} km Reichweite abzgl. ${fmt(reserve * 100)} % Reserve).</div>`;
+    else if (stops) {
+      const legs = []; let tot = 0;
+      for (let i = 1; i < stops.length; i++) { const l = gcDist(stops[i - 1], stops[i]); tot += l; legs.push(`${tag(stops[i - 1])} → ${tag(stops[i])}: ${fmt(l)} km`); }
+      notes += `<div class="note warn">Strecke übersteigt die nutzbare Reichweite (${fmt(usable)} km). Kürzeste Route mit den wenigsten Tankstopps (${stops.length - 2}): <strong>${stops.map(tag).join(" → ")}</strong> – gesamt ${fmt(tot)} km (+${fmt(tot - d)} km Umweg).<br>${legs.join(" · ")}</div>`;
+    } else notes += `<div class="note warn">Strecke übersteigt die nutzbare Reichweite (${fmt(usable)} km), und keine Kette von Flughäfen in der Datenbank verbindet die Punkte mit Etappen dieser Länge.</div>`;
+  }
+  if (Math.abs(vertex.lat) > 66.56) notes += `<div class="note warn">Die Route führt über den Polarkreis (bis ${latStr(vertex.lat)}).</div>`;
+  $("notes").innerHTML = notes;
+
+  $("wpt").innerHTML = `<thead><tr><th>Punkt</th><th>Position</th><th class="num">Lat</th><th class="num">Lon</th><th class="num">km ab Start</th><th class="num">verbleibend</th><th class="num">Kurs</th><th class="num">Zeit</th></tr></thead><tbody>` +
+    waypoints.map((p, i) => `<tr><td>${esc(p.label)}</td><td>${posStr(p)}</td><td class="num">${p.lat.toFixed(4)}</td><td class="num">${p.lon.toFixed(4)}</td><td class="num">${fmt(p.dist)}</td><td class="num">${fmt(d - p.dist)}</td><td class="num">${i < n ? brgStr(p.course) : "–"}</td><td class="num">${hm(p.time)}</td></tr>`).join("") + "</tbody>";
+  try { localStorage.setItem("flugrouten", JSON.stringify({ from: $("from").value, to: $("to").value, ac: $("ac").value })); } catch (e) {}
+}
+
+// ---------- Export ----------
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const fileBase = () => `route_${state.A.iata || "PKT"}_${state.B.iata || "PKT"}`;
+const csv = () => "Punkt;Lat;Lon;Position;km_ab_Start;Kurs\n" + state.waypoints.map(p => `${p.label};${p.lat.toFixed(5)};${p.lon.toFixed(5)};${posStr(p)};${p.dist.toFixed(1)};${Math.round(p.course)}`).join("\n");
+$("csvBtn").onclick = () => state && download(fileBase() + ".csv", csv(), "text/csv");
+$("gpxBtn").onclick = () => {
+  if (!state) return;
+  const pts = state.waypoints.map(p => `    <rtept lat="${p.lat.toFixed(6)}" lon="${p.lon.toFixed(6)}"><name>${esc(p.label)}</name></rtept>`).join("\n");
+  download(fileBase() + ".gpx", `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Flugrouten-Rechner" xmlns="http://www.topografix.com/GPX/1/1">\n  <rte><name>${esc(tag(state.A) + " - " + tag(state.B))}</name>\n${pts}\n  </rte>\n</gpx>\n`, "application/gpx+xml");
+};
+$("copyBtn").onclick = async () => {
+  if (!state) return;
+  try { await navigator.clipboard.writeText(csv().replace(/;/g, "\t")); $("copyBtn").textContent = "Kopiert ✓"; }
+  catch (e) { $("copyBtn").textContent = "Nicht möglich"; }
+  setTimeout(() => { $("copyBtn").textContent = "Kopieren"; }, 1500);
+};
+
+// ---------- Init ----------
+$("aplist").innerHTML = AIRPORTS.map(a => `<option value="${a.iata} – ${esc(a.name)}">${a.icao} · ${a.cc}</option>`).join("");
+$("ac").innerHTML = AIRCRAFT.map((a, i) => `<option value="${i}">${a[0]}</option>`).join("");
+function applyAircraft() {
+  const i = +$("ac").value;
+  if (i !== CUSTOM_AC) { const a = AIRCRAFT[i]; $("tas").value = a[1]; $("range").value = a[2]; $("burn").value = a[3]; }
+}
+$("ac").onchange = () => { applyAircraft(); compute(); };
+["tas", "range", "burn"].forEach(id => $(id).addEventListener("input", () => { $("ac").value = CUSTOM_AC; }));
+$("swapBtn").onclick = () => { const f = $("from").value; $("from").value = $("to").value; $("to").value = f; compute(); };
+$("form").onsubmit = e => { e.preventDefault(); compute(); };
+["from", "to", "wind", "reserve", "extra", "spacing", "tas", "range", "burn"].forEach(id => $(id).addEventListener("change", compute));
+
+$("ac").value = DEFAULT_AC;
+try {
+  const s = JSON.parse(localStorage.getItem("flugrouten") || "null");
+  if (s && s.from && s.to) { $("from").value = s.from; $("to").value = s.to; if (AIRCRAFT[+s.ac] && +s.ac !== CUSTOM_AC) $("ac").value = s.ac; }
+} catch (e) {}
+applyAircraft();
+makeProjection();
+compute();
+</script>
+</body>
+</html>
